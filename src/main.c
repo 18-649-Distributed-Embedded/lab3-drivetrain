@@ -1,0 +1,38 @@
+#include <zephyr/kernel.h>
+#include "hw/l298n.h"
+#include "hw/encoders.h"
+#include "hw/adc.h"
+#include "hw/blinkers.h"
+#include "hw/can.h"
+#include "sys/drivetrain.h"
+#include "sys/blinkers_control.h"
+#include "sys/health.h"
+#include "sys/uart_parser.h"
+#include "core/log.h"
+
+int main(void)
+{
+    DEBUG_PRINT("=== Lab 3 Drivetrain Node: Initializing ===\n");
+
+    /* --- Hardware layer --- */
+    DEBUG_PRINT("Initializing hardware...\n");
+    if (l298n_init()    != 0) return -1;
+    if (encoders_init() != 0) return -1;
+    if (adc_init()      != 0) return -1;
+    if (blinkers_init() != 0) return -1;
+    if (can_bus_init()  != 0) return -1;
+
+    /* --- System layer (stub inits only — threads added in Part 2) --- */
+    DEBUG_PRINT("Initializing system stubs...\n");
+    uart_parser_init();
+    drivetrain_init();
+    blinkers_control_init();
+    health_init();
+
+    DEBUG_PRINT("=== Initialization complete. Checkpoint reached. ===\n");
+
+    /* Verify both CAN controllers came up in ERROR-ACTIVE state */
+    can_log_state();
+
+    return 0;
+}

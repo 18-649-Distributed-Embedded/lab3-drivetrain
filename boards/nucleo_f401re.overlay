@@ -1,0 +1,151 @@
+/ {
+    aliases {
+        // Turn Signal LEDs
+        led-right = &led_right;
+        led-left = &led_left;
+
+        // Drivetrain H-Bridge
+        dir-r1 = &dir_r1;
+        dir-r2 = &dir_r2;
+        dir-l1 = &dir_l1;
+        dir-l2 = &dir_l2;
+        pwm-r = &pwm_r;
+        pwm-l = &pwm_l;
+    };
+
+    drivetrain_dir {
+        compatible = "gpio-leds";
+        dir_r1: dir_r1 { gpios = <&gpiob 14 GPIO_ACTIVE_HIGH>; };
+        dir_r2: dir_r2 { gpios = <&gpiob 15 GPIO_ACTIVE_HIGH>; };
+        dir_l1: dir_l1 { gpios = <&gpiob 12 GPIO_ACTIVE_HIGH>; };
+        dir_l2: dir_l2 { gpios = <&gpiob 13 GPIO_ACTIVE_HIGH>; };
+    };
+
+    drivetrain_pwm {
+        compatible = "pwm-leds";
+        pwm_r: pwm_r { pwms = <&pwm3 2 100000 PWM_POLARITY_NORMAL>; }; 
+        pwm_l: pwm_l { pwms = <&pwm3 1 100000 PWM_POLARITY_NORMAL>; }; 
+    };
+
+    leds {
+        compatible = "gpio-leds";
+
+        led_right: right {
+            gpios = <&gpiob 5 GPIO_ACTIVE_HIGH>;
+            label = "Rear Right Turn Signal";
+        };
+
+        led_left: left {
+            gpios = <&gpiob 4 GPIO_ACTIVE_HIGH>;
+            label = "Rear Left Turn Signal";
+        };
+    };
+};
+
+// ============================================================
+// CAN0 (MCP2515 on SPI2)
+//   MISO -> PC2, MOSI -> PC3, SCLK -> PB10
+//   CS   -> PB2, INT  -> PB1 (falling edge, internal pull-up)
+// ============================================================
+&spi2 {
+    status = "okay";
+    pinctrl-0 = <&spi2_sck_pb10 &spi2_miso_pc2 &spi2_mosi_pc3>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpiob 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+
+    can0: mcp2515@0 {
+        compatible = "microchip,mcp2515";
+        reg = <0>;
+        spi-max-frequency = <8000000>;
+        osc-freq = <16000000>;
+        int-gpios = <&gpiob 1 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        bitrate = <500000>;
+        status = "okay";
+    };
+};
+
+// ============================================================
+// CAN1 (MCP2515 on SPI3)
+//   MISO -> PC11, MOSI -> PC12, SCLK -> PC10
+//   CS   -> PD2,  INT  -> PA11 (falling edge, internal pull-up)
+// ============================================================
+&spi3 {
+    status = "okay";
+    pinctrl-0 = <&spi3_sck_pc10 &spi3_miso_pc11 &spi3_mosi_pc12>;
+    pinctrl-names = "default";
+    cs-gpios = <&gpiod 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+
+    can1: mcp2515@0 {
+        compatible = "microchip,mcp2515";
+        reg = <0>;
+        spi-max-frequency = <8000000>;
+        osc-freq = <16000000>;
+        int-gpios = <&gpioa 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        bitrate = <500000>;
+        status = "okay";
+    };
+};
+
+// Aliases for CAN bus interfaces
+/ {
+    aliases {
+        can-a = &can0;
+        can-b = &can1;
+    };
+};
+
+// Drivetrain PWM Timer
+&timers3 {
+    status = "okay";
+    pwm3: pwm {
+        status = "okay";
+        pinctrl-0 = <&tim3_ch1_pa6 &tim3_ch2_pa7>;
+        pinctrl-names = "default";
+    };
+};
+
+// Current Sensor ADC
+&adc1 {
+    status = "okay";
+    pinctrl-0 = <&adc1_in10_pc0 &adc1_in11_pc1>;
+    pinctrl-names = "default";
+};
+
+// Encoder Pullups
+&tim1_ch1_pa8  { bias-pull-up; };
+&tim1_ch2_pa9  { bias-pull-up; };
+&tim2_ch1_pa0  { bias-pull-up; };
+&tim2_ch2_pa1  { bias-pull-up; };
+
+// Right Encoder Timer
+&timers1 {
+    status = "okay";
+    qdec1: qdec {
+        status = "okay";
+        compatible = "st,stm32-qdec";
+        pinctrl-0 = <&tim1_ch1_pa8 &tim1_ch2_pa9>;
+        pinctrl-names = "default";
+        st,counts-per-revolution = <360>; 
+        st,encoder-mode = <3>;
+    };
+};
+
+// Left Encoder Timer
+&timers2 {
+    status = "okay";
+    
+    // Disable the default PWM driver on TIM2 to prevent it from 
+    // overriding our Quadrature Decoder configuration!
+    pwm2: pwm {
+        status = "disabled";
+    };
+
+    qdec2: qdec {
+        status = "okay";
+        compatible = "st,stm32-qdec";
+        pinctrl-0 = <&tim2_ch1_pa0 &tim2_ch2_pa1>;
+        pinctrl-names = "default";
+        st,counts-per-revolution = <360>;
+        st,encoder-mode = <3>;
+    };
+};
