@@ -34,5 +34,46 @@ int main(void)
     /* Verify both CAN controllers came up in ERROR-ACTIVE state */
     can_log_state();
 
-    return 0;
+    /* ------------------------------------------------------------------
+     * Temporary 1 Hz test TX loop — remove once Part 2 threads are added.
+     * Sends ID 0x7FF on CAN A and ID 0x7FE on CAN B so candump shows
+     * distinct traffic from each controller.
+     *
+     *  Byte 0-1  uptime_ms [31:16] and [15:0]
+     *  Byte 2    sequence counter (0-255, wraps)
+     *  Byte 3    bus id  (0xCA = CAN A, 0xCB = CAN B)
+     *  Bytes 4-7 0xDEADBEEF marker
+     * ------------------------------------------------------------------ */
+    DEBUG_PRINT("Starting 1 Hz CAN test TX...\n");
+    uint8_t seq = 0;
+    while (1) {
+        uint32_t uptime = k_uptime_get_32();
+
+        struct can_frame f = {
+            .id  = 0x7FF,
+            .dlc = 8,
+            .data = {
+                (uptime >> 24) & 0xFF,
+                (uptime >> 16) & 0xFF,
+                (uptime >>  8) & 0xFF,
+                (uptime      ) & 0xFF,
+                seq,
+                0xCA,           /* bus A marker */
+                0xDE, 0xAD,
+            },
+        };
+
+        int r = can_send(can_a_dev, &f, K_MSEC(50), NULL, NULL);
+        DEBUG_PRINT("[CAN A] TX 0x7FF seq=%u uptime=%ums ret=%d\n",
+                    seq, uptime, r);
+
+        f.id      = 0x7FE;
+        f.data[5] = 0xCB;       /* bus B marker */
+        r = can_send(can_b_dev, &f, K_MSEC(50), NULL, NULL);
+        DEBUG_PRINT("[CAN B] TX 0x7FE seq=%u uptime=%ums ret=%d\n",
+                    seq, uptime, r);
+
+        seq++;
+        k_msleep(1000);
+    }
 }
