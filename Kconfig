@@ -1,4 +1,4 @@
-mainmenu "Lab 2 STM32 Application Configuration"
+mainmenu "Lab 3 Drivetrain Module Configuration"
 
 source "Kconfig.zephyr"
 
