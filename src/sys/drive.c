@@ -10,7 +10,7 @@ volatile int32_t drive_target_tps   = 0;
 volatile int32_t drive_brake_active = 1;    /* start braked */
 
 #define DRIVE_THREAD_STACK  512
-#define DRIVE_THREAD_PRIO   3    /* below MCP2515 driver (2), above PID (4) */
+#define DRIVE_THREAD_PRIO   3    /* below MCP2515 driver and relay, above PID */
 
 /*
  * Convert throttle byte (0-255, center=127=idle) to TPS target.
@@ -58,4 +58,3 @@ void drive_init(void)
                     DRIVE_THREAD_PRIO, 0, K_NO_WAIT);
     k_thread_name_set(&drive_thread_data, "DRIVE");
 }
-

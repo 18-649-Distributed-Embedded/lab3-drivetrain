@@ -21,7 +21,7 @@ static void blink_r_thread_func(void *p1, void *p2, void *p3)
         bool is_failsafe = (atomic_get(&system_safety_flags) != 0);
 
         if (is_failsafe) {
-            /* Fail-safe / error state: local 1Hz hazard flashing (500ms period) */
+            /* Fail-safe / error state: local 2 Hz hazard flashing (500 ms period, 50 %) */
             uint32_t now = k_uptime_get_32();
             bool on = (now % 500U) < 250U;
             blinkers_set_left(on);

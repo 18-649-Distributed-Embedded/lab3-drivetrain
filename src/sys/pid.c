@@ -117,4 +117,3 @@ void pid_init(void)
                     PID_THREAD_PRIO, 0, K_NO_WAIT);
     k_thread_name_set(&pid_thread_data, "PID");
 }
-

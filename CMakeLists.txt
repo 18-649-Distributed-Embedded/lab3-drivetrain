@@ -5,6 +5,9 @@ project(lab3_drivetrain)
 target_sources(app PRIVATE
     src/main.c
 
+    # Pure logic
+    src/core/conn_state.c
+
     # Hardware drivers
     src/hw/l298n.c
     src/hw/encoders.c
@@ -14,6 +17,7 @@ target_sources(app PRIVATE
 
     # System tasks
     src/sys/can_rx.c
+    src/sys/relay.c
     src/sys/drive.c
     src/sys/pid.c
     src/sys/blinkers_control.c

@@ -3,10 +3,12 @@
 #include <zephyr/drivers/can.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/atomic.h>
+#include <zephyr/sys/byteorder.h>
 #include "hw/can.h"
 #include "core/can_catalog.h"
 #include "core/cmd.h"
 #include "core/log.h"
+#include "sys/relay.h"
 
 static const struct gpio_dt_spec can0_rx_tp = GPIO_DT_SPEC_GET(DT_ALIAS(can0_rx), gpios);
 static const struct gpio_dt_spec can1_rx_tp = GPIO_DT_SPEC_GET(DT_ALIAS(can1_rx), gpios);
@@ -15,7 +17,7 @@ static const struct gpio_dt_spec can1_rx_tp = GPIO_DT_SPEC_GET(DT_ALIAS(can1_rx)
 K_SEM_DEFINE(sem_ctrl,  0, 1);
 K_SEM_DEFINE(sem_blink, 0, 1);
 
-atomic_t mailbox_ctrl     = ATOMIC_INIT(127 << 8);  /* throttle=127, brake=0 */
+atomic_t mailbox_ctrl     = ATOMIC_INIT(0);
 atomic_t mailbox_blinker  = ATOMIC_INIT(0);
 atomic_t mailbox_hb_n1_a  = ATOMIC_INIT(0);
 atomic_t mailbox_hb_n1_b  = ATOMIC_INIT(0);
@@ -23,6 +25,9 @@ atomic_t mailbox_hb_n2_a  = ATOMIC_INIT(0);
 atomic_t mailbox_hb_n2_b  = ATOMIC_INIT(0);
 atomic_t mailbox_n1_state = ATOMIC_INIT(CAN_ZONE_STATE_OK);
 atomic_t mailbox_n2_state = ATOMIC_INIT(CAN_ZONE_STATE_OK);
+
+atomic_t can_rx_count_a = ATOMIC_INIT(0);
+atomic_t can_rx_count_b = ATOMIC_INIT(0);
 
 volatile uint32_t last_ctrl_time = 0;
 
@@ -63,8 +68,17 @@ static bool dedup_accept(uint32_t id, uint8_t seq)
         last_seq[idx] = 0xFF;
     }
 
-    if (last_seq[idx] == seq) {
-        return false;   /* duplicate from the other bus */
+    /* Accept only frames NEWER than the last accepted one (4-bit modular).
+     * diff 0     = duplicate copy from the other bus
+     * diff 8..15 = an OLDER copy arriving late on the other bus; accepting
+     *              it would roll state back.
+     * After a gap > 100 ms the state is reset above, so a rebooted sender's
+     * new sequence is always accepted. */
+    if (last_seq[idx] != 0xFF) {
+        uint8_t diff = (uint8_t)(seq - last_seq[idx]) & 0x0F;
+        if (diff == 0 || diff > 7) {
+            return false;
+        }
     }
 
     last_seq[idx] = seq;
@@ -74,7 +88,7 @@ static bool dedup_accept(uint32_t id, uint8_t seq)
 
 /* ── Dispatch Callback ───────────────────────────────────── */
 /*
- * Called from the MCP2515 driver thread (priority 2).
+ * Called from the MCP2515 driver thread (priority 1 or 2, see prj.conf).
  * user_data: 0 = bus A, 1 = bus B.
  */
 static void rx_dispatch(const struct device *dev,
@@ -87,6 +101,8 @@ static void rx_dispatch(const struct device *dev,
     /* Set RX TP HIGH immediately after SPI read callback fires */
     gpio_pin_set_dt(rx_tp, 1);
 
+    atomic_inc((bus == 0) ? &can_rx_count_a : &can_rx_count_b);
+
     uint32_t now = k_uptime_get_32();
 
     /* Track reception timestamp per bus before deduplication */
@@ -98,17 +114,25 @@ static void rx_dispatch(const struct device *dev,
         else          atomic_set(&mailbox_hb_n2_b, (atomic_val_t)now);
     }
 
+    /* Relay hook: cache for priming, and queue for forwarding if relay mode
+     * is active. Before dedup so the forwarded copy leaves as early as
+     * possible. Non-blocking. */
+    relay_on_rx(bus, frame);
+
     uint8_t seq = can_seq(frame->data[0]);
     if (dedup_accept(frame->id, seq)) {
         switch (frame->id) {
 
         case CAN_ID_CTRL: {
+            /* CTRL payload: [0]=flags|seq [1..2]=steer int16 [3]=throttle
+             * [4]=brake [5]=buttons [6]=unused [7]=CRC-8
+             * TODO: CRC-8 + range check -> FAULT (R3, checkoff item 10). */
             uint8_t throttle = frame->data[3];
             uint8_t brake    = frame->data[4];
             uint8_t buttons  = frame->data[5];
-            uint32_t val = ((uint32_t)buttons  << 16) |
-                           ((uint32_t)throttle <<  8) |
-                           ((uint32_t)brake);
+            uint32_t val = ((uint32_t)buttons << 16) |
+                           ((uint32_t)throttle << 8) |
+                           (uint32_t)brake;
             atomic_set(&mailbox_ctrl, (atomic_val_t)val);
             last_ctrl_time = now;
             k_sem_give(&sem_ctrl);
@@ -118,6 +142,7 @@ static void rx_dispatch(const struct device *dev,
         case CAN_ID_FAULT: {
             uint8_t zone_id = frame->data[1];
             uint8_t reason  = frame->data[2];
+            (void)zone_id;
             if (reason == 0) {
                 /* Fault cleared */
                 atomic_clear_bit(&system_safety_flags, SAFETY_FLAG_PEER_FAULT);
@@ -195,4 +220,3 @@ void can_rx_init(void)
 
     DEBUG_PRINT("CAN RX dispatch registered on both buses\n");
 }
-

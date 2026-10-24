@@ -188,3 +188,15 @@
     };
 };
 
+// PA6 is TIM3_CH1 and PA7 is TIM3_CH2 (motor PWM). The board DTS assigns
+// them to SPI1 MISO/MOSI. Console uses USART2 and CAN uses SPI2/SPI3, so
+// disable usart1 and spi1 to prevent pin conflicts.
+&usart1 {
+    status = "disabled";
+};
+
+&spi1 {
+    status = "disabled";
+};
+
+
